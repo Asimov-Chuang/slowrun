@@ -288,17 +288,6 @@ def _load_fa2():
         from flash_attn import flash_attn_func as _fa2_func
         return _fa2_func
     except (ImportError, OSError):
-        pass
-    # No flash-attn wheel (e.g. TACC A100s): the Hugging Face hub build of FA2, which keeps
-    # sliding-window attention. Set HF_HOME to a pre-populated cache and HF_HUB_OFFLINE=1 on
-    # compute nodes without internet.
-    try:
-        if not torch.cuda.is_available() or torch.cuda.get_device_capability()[0] < 8:
-            return None
-        os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
-        from kernels import get_kernel
-        return get_kernel('kernels-community/flash-attn').flash_attn_func
-    except Exception:
         return None
 
 _fa2 = None if _fa3 is not None else _load_fa2()
