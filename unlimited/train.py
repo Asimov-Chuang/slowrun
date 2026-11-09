@@ -137,6 +137,10 @@ parser.add_argument("--no-warmdown", action="store_true", default=False,
                          "Equivalent to setting WARMDOWN_RATIO=0 and FINAL_LR_FRAC=1.0 for this run. "
                          "Useful for resume-friendly experiments where the schedule shouldn't "
                          "change when num-epochs is extended.")
+parser.add_argument("--warmup-steps", type=int, default=0,
+                    help="Linear LR warmup over this many optimizer steps (0 = none, the default). "
+                         "A fixed step count, not a fraction of the run, so a constant-LR "
+                         "(--no-warmdown) checkpoint still equals a shorter run. Overrides WARMUP_RATIO.")
 parser.add_argument("--checkpoint-every-n-steps", type=int, default=0,
                     help="If >0, save model_{i}_step_{S}.pt every N optimizer steps in single-model "
                          "mode. Used for finer-grained replay-time ensemble eval. Saved in addition "
@@ -1334,7 +1338,7 @@ def train_single_model(model_idx, seed, device, config, autocast_ctx, token_byte
 
     # LR schedule
     def get_lr_multiplier(it):
-        warmup = round(WARMUP_RATIO * num_iterations)
+        warmup = args.warmup_steps if args.warmup_steps > 0 else round(WARMUP_RATIO * num_iterations)
         warmdown = round(WARMDOWN_RATIO * num_iterations)
         if it < warmup: return (it + 1) / warmup
         elif it <= num_iterations - warmdown: return 1.0
@@ -1842,6 +1846,7 @@ def train_ensemble_sync(seeds, device, config, autocast_ctx, token_bytes,
                 "base_matrix_lr": args.matrix_lr,
                 "base_scalar_lr": args.scalar_lr,
                 "warmup_ratio": WARMUP_RATIO if not args.no_warmdown else 0.0,
+                "warmup_steps": args.warmup_steps,
                 "warmdown_ratio": WARMDOWN_RATIO if not args.no_warmdown else 0.0,
                 "final_lr_frac": FINAL_LR_FRAC if not args.no_warmdown else 1.0,
                 "no_warmdown": args.no_warmdown,
@@ -1887,10 +1892,11 @@ def train_ensemble_sync(seeds, device, config, autocast_ctx, token_bytes,
     # LR schedule (shared — all models are identical config)
     if args.no_warmdown:
         def get_lr_multiplier(it):
+            if it < args.warmup_steps: return (it + 1) / args.warmup_steps
             return 1.0
     else:
         def get_lr_multiplier(it):
-            warmup = round(WARMUP_RATIO * num_iterations)
+            warmup = args.warmup_steps if args.warmup_steps > 0 else round(WARMUP_RATIO * num_iterations)
             warmdown = round(WARMDOWN_RATIO * num_iterations)
             if it < warmup: return (it + 1) / warmup
             elif it <= num_iterations - warmdown: return 1.0
