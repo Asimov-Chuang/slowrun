@@ -1339,7 +1339,7 @@ def train_single_model(model_idx, seed, device, config, autocast_ctx, token_byte
         if it < warmup: return (it + 1) / warmup
         elif it <= num_iterations - warmdown: return 1.0
         else:
-            progress = (num_iterations - it) / warmdown
+            progress = max(0.0, (num_iterations - it) / warmdown)  # never below FINAL_LR_FRAC
             return progress + (1 - progress) * FINAL_LR_FRAC
 
     def get_muon_momentum(it):
@@ -1790,8 +1790,11 @@ def train_ensemble_sync(seeds, device, config, autocast_ctx, token_bytes,
     grad_accum_steps = TOTAL_BATCH_SIZE // tokens_per_fwdbwd
     _first_idx = active_indices[0]
     tokens_per_epoch = loaders[_first_idx].total_tokens
-    num_iterations = round(tokens_per_epoch * num_epochs / TOTAL_BATCH_SIZE)
     steps_per_epoch_optim = round(tokens_per_epoch / TOTAL_BATCH_SIZE)  # optimizer steps per epoch
+    # The loop runs steps_per_epoch_optim steps every epoch, so the schedule must end on the same
+    # count. round(tokens_per_epoch * num_epochs / batch) undercounts by up to 0.5 step per epoch,
+    # which left 9-35 steps past the end of the cooldown at a negative LR (gradient ascent).
+    num_iterations = steps_per_epoch_optim * num_epochs
     print0(f"  grad_accum_steps={grad_accum_steps}, steps_per_epoch_optim={steps_per_epoch_optim}, num_iterations={num_iterations}")
     print0(f"  tokens_per_epoch={tokens_per_epoch:,}  (data_fraction={args.data_fraction})")
 
@@ -1892,7 +1895,7 @@ def train_ensemble_sync(seeds, device, config, autocast_ctx, token_bytes,
             if it < warmup: return (it + 1) / warmup
             elif it <= num_iterations - warmdown: return 1.0
             else:
-                progress = (num_iterations - it) / warmdown
+                progress = max(0.0, (num_iterations - it) / warmdown)  # never below FINAL_LR_FRAC
                 return progress + (1 - progress) * FINAL_LR_FRAC
 
     def get_muon_momentum(it):
